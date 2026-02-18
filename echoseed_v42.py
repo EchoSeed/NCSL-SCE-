@@ -772,6 +772,72 @@ def save_logs(chunk_size: int = 250) -> None:
 
     print(f"✅ Saved to {LOG_DIR} (chunk_{idx:04}.json, master_log.json, reflex_free.json)")
 
+def load_logs() -> int:
+    """Reload glyphs from master_log.json in LOG_DIR and restore system state.
+
+    Rebuilds glyph_log, id2glyph, reflex_free, seen_signatures, and the glyph
+    graph from the last saved master log.  Safe to call on a running system;
+    only glyphs not already in memory are added.
+
+    Returns the number of glyphs newly loaded.
+    """
+    import os, json
+
+    global glyph_id
+
+    master_path = f"{LOG_DIR}/master_log.json"
+    if not os.path.exists(master_path):
+        print(f"⚠️  No master log found at {master_path}")
+        return 0
+
+    with open(master_path, "r", encoding="utf-8") as f:
+        loaded = json.load(f)
+
+    count = 0
+    with log_lock:
+        for g in loaded:
+            gid = g.get("id", "")
+            if not gid or gid in id2glyph:
+                continue  # skip glyphs already in memory
+
+            # _jsonify serialises numpy arrays as plain lists; restore them
+            raw_vec = g.get("vec")
+            if raw_vec is not None:
+                g["vec"] = np.array(raw_vec, dtype=float)
+            else:
+                g["vec"] = embed(g.get("tags", []))
+
+            glyph_log.append(g)
+            id2glyph[gid] = g
+            seen_signatures.add(signature(g))
+
+            if "reflex" not in g.get("tags", []):
+                reflex_free.append(g)
+
+            with graph_lock:
+                glyph_graph.add_node(
+                    gid,
+                    entropy=g.get("entropy", 0),
+                    tags=g.get("tags", []),
+                    fit=fitness(g),
+                )
+                stagnant_counter[gid] = 0
+                for parent_id in g.get("ancestry", []):
+                    if parent_id in id2glyph:
+                        glyph_graph.add_edge(parent_id, gid)
+
+            # Keep the global id counter ahead of any restored ids
+            if gid.startswith("g") and gid[1:].isdigit():
+                glyph_id = max(glyph_id, int(gid[1:]))
+
+            count += 1
+
+    print(
+        f"✅ Loaded {count} new glyphs from {master_path} "
+        f"(total in memory: {len(glyph_log)})"
+    )
+    return count
+
 def generate():
     """Enhanced generation loop with seasonal dynamics."""
     global generation_count
@@ -1335,6 +1401,7 @@ stop_btn=widgets.Button(description="Stop")
 lattice_btn=widgets.Button(description="Render Lattice")
 entropy_btn=widgets.Button(description="Entropy Graph")
 save_btn = widgets.Button(description='Save Now')
+load_btn = widgets.Button(description='Load Logs')
 reflex_btn = widgets.Button(description='Reflex‑Free Count')
 
 start_btn.on_click(start_gen)
@@ -1342,9 +1409,10 @@ stop_btn.on_click(stop_gen)
 lattice_btn.on_click(render_lattice_ui)
 entropy_btn.on_click(render_entropy_graph)
 save_btn.on_click(lambda _: save_logs())
+load_btn.on_click(lambda _: load_logs())
 reflex_btn.on_click(lambda _ : print(f'Reflex‑free glyphs → {len(reflex_free)}'))
 
-display(widgets.HBox([start_btn, stop_btn, lattice_btn, entropy_btn, gen_rate_slider, save_btn, reflex_btn]))
+display(widgets.HBox([start_btn, stop_btn, lattice_btn, entropy_btn, gen_rate_slider, save_btn, load_btn, reflex_btn]))
 display(output_area)
 display(entropy_output)
 
@@ -1666,12 +1734,14 @@ def manual_save(_=None):
 start_btn = widgets.Button(description="Start Engine")
 stop_btn = widgets.Button(description="Stop Engine")
 save_btn = widgets.Button(description="Save Now")
+load_btn = widgets.Button(description="Load Logs")
 
 start_btn.on_click(start_gen)
 stop_btn.on_click(stop_gen)
 save_btn.on_click(manual_save)
+load_btn.on_click(lambda _: load_logs())
 
-display(widgets.HBox([start_btn, stop_btn, save_btn]))
+display(widgets.HBox([start_btn, stop_btn, save_btn, load_btn]))
 display(output_area)
 
 

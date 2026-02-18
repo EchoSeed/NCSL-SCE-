@@ -30,7 +30,7 @@ EchoSeed is an experimental symbolic cognition engine. It generates symbolic gly
    - Saved to `/glyph_data/` as `chunk_XXXX.json`.
    - Includes glyphs, metadata, attractor states.
 
-5. **Log reloading** is currently **manual only**. Auto-reload support is under development.
+5. **Log reloading**: click the **Load Logs** button to restore the last saved `master_log.json` into the running session. Only glyphs not already in memory are added, so it is safe to call on a live engine.
 
 ---
 
